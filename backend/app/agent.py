@@ -153,17 +153,60 @@ def _rule_based_parse(raw_text: str, user_profile: dict, kb_items: list[dict]) -
     allergies = user_profile.get("allergies", [])
     foods_to_avoid = user_profile.get("foods_to_avoid", [])
 
-    # Sort KB items by name length descending to match longer names first
+    # These are intentionally conservative aliases for common natural-language meal
+    # descriptions.  The KB names contain preparation details in parentheses, while
+    # people normally write phrases such as "boiled eggs" or "bean curry".
+    aliases = {
+        "White Rice (Cooked)": ["white rice", "rice"],
+        "Egg (Boiled)": ["boiled eggs?", "boil(?:ed|d)? eggs?"],
+        "Rajma (Kidney Bean Curry)": ["rajma", "bean curry", "beans curry", "curry beans"],
+    }
+
+    # Prefer specific dishes before their component ingredients, then let standard
+    # KB-name matching handle the remaining foods.
     sorted_kb = sorted(kb_items, key=lambda x: len(x["food_name"]), reverse=True)
+
+    def _quantity_for(alias: str, kb: dict) -> tuple[float, bool]:
+        """Return a serving multiplier and whether a local quantity was supplied.
+
+        A number elsewhere in a sentence must never be used for this food.  For
+        example, in "rice with curry and 2 boiled eggs", the 2 belongs to eggs,
+        not rice.  This was the cause of the 3 kcal result.
+        """
+        # Aliases are regex fragments, so preserve their optional/plural patterns.
+        escaped_alias = alias
+        # A number immediately before a named food is a count ("2 eggs") unless
+        # it explicitly has a mass/volume unit, in which case scale by the KB size.
+        match = re.search(
+            rf"\b(\d+(?:\.\d+)?)\s*(g|grams?|ml|cups?|servings?|pieces?|slices?)?\s+(?:{escaped_alias})\b",
+            text_lower,
+        )
+        if not match:
+            return 1.0, False
+
+        amount = float(match.group(1))
+        specified_unit = (match.group(2) or "").lower()
+        if specified_unit.startswith("g") and kb["serving_size"]:
+            return amount / kb["serving_size"], True
+        if specified_unit == "ml" and kb["serving_size"]:
+            return amount / kb["serving_size"], True
+        return amount, True
 
     item_idx = 0
     # Simple regex scanner for food names
     for kb in sorted_kb:
         kb_name = kb["food_name"]
-        kb_clean = kb_name.lower().replace(" (cooked)", "").replace(" (fried)", "").replace(" (boiled)", "")
+        kb_clean = re.sub(r"\s*\([^)]*\)", "", kb_name.lower()).strip()
+        # Do not let a preparation-specific entry match only its base noun.  Without
+        # this guard, "boiled eggs" could be claimed first by "Egg (Scrambled)".
+        match_aliases = aliases.get(
+            kb_name,
+            [] if "(" in kb_name else [re.escape(kb_clean) + "s?"],
+        )
         
         # Avoid double-matching if we already extracted something overlapping
-        if kb_clean in text_lower:
+        matched_alias = next((alias for alias in match_aliases if re.search(rf"\b(?:{alias})\b", text_lower)), None)
+        if matched_alias:
             # Check if already matched
             already_matched = False
             for ext in extracted_items:
@@ -173,23 +216,9 @@ def _rule_based_parse(raw_text: str, user_profile: dict, kb_items: list[dict]) -
             if already_matched:
                 continue
 
-            # Check if user text mentions quantity
-            # Look for numbers near the word
-            pattern = rf"(\d+(?:\.\d+)?)\s*(?:g|ml|slice|cup|piece|serving|oz)?\s*{re.escape(kb_clean)}"
-            match = re.search(pattern, text_lower)
-            quantity = 1.0
-            unit = kb["unit"]
-            has_explicit_qty = False
-
-            if match:
-                quantity = float(match.group(1))
-                has_explicit_qty = True
-            else:
-                # Try finding any numbers in the string
-                nums = re.findall(r"(\d+(?:\.\d+)?)", text_lower)
-                if nums:
-                    quantity = float(nums[0])
-                    has_explicit_qty = True
+            scale, has_explicit_qty = _quantity_for(matched_alias, kb)
+            quantity = scale
+            unit = "serving" if has_explicit_qty and scale != 1 else kb["unit"]
 
             # If no explicit quantity was specified, generate clarification
             if not has_explicit_qty:
@@ -201,11 +230,6 @@ def _rule_based_parse(raw_text: str, user_profile: dict, kb_items: list[dict]) -
                 assumptions.append(f"Assumed 1 default serving ({kb['serving_size']}{kb['unit']}) of {kb_name}.")
 
             # Scale nutrients
-            scale = quantity
-            if has_explicit_qty and kb["unit"] == "g" and kb["serving_size"] > 0:
-                # If unit is g and user input is also scaled
-                scale = quantity / kb["serving_size"]
-
             calories = round(kb["calories"] * scale, 1)
             protein = round(kb["protein_g"] * scale, 1)
             carbs = round(kb["carbs_g"] * scale, 1)
