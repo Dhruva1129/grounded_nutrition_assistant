@@ -45,6 +45,11 @@ export const api = {
     request(`/meals/daily-summary?date=${dateStr || ""}`),
   getMealHistory: () => request("/meals/history"),
   getInsights: () => request("/meals/insights"),
+  askNutritionQuestion: (question) =>
+    request("/meals/insights/chat", {
+      method: "POST",
+      body: JSON.stringify({ question }),
+    }),
 
   // Meal Plans
   generateMealPlan: (planDate) =>
@@ -71,4 +76,17 @@ export const api = {
 
   // Disclaimer
   getDisclaimer: () => request("/disclaimer"),
+
+  // Goals, trends, activity, favorites and privacy
+  getNutritionSettings: () => request("/wellness/settings"),
+  updateNutritionSettings: (data) => request("/wellness/settings", { method: "PUT", body: JSON.stringify(data) }),
+  getDailyWellness: () => request("/wellness/daily"),
+  saveDailyWellness: (data) => request("/wellness/daily", { method: "PUT", body: JSON.stringify(data) }),
+  getWeeklyTrends: () => request("/wellness/trends"),
+  getFavorites: () => request("/favorites"),
+  createFavorite: (data) => request("/favorites", { method: "POST", body: JSON.stringify(data) }),
+  deleteFavorite: (id) => request(`/favorites/${id}`, { method: "DELETE" }),
+  exportData: () => request("/privacy/export"),
+  deletePersonalData: () => request("/privacy/data", { method: "DELETE" }),
+  getGroceryList: (planId) => request(`/meal-plans/${planId}/grocery-list`),
 };

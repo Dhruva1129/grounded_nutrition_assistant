@@ -25,10 +25,6 @@ def seed_knowledge_base():
     from app import models
     db = SessionLocal()
     try:
-        # Check if already seeded
-        if db.query(models.NutritionKnowledge).first() is not None:
-            return
-
         kb_path = os.path.join(os.path.dirname(__file__), "nutrition_kb.json")
         if not os.path.exists(kb_path):
             return
@@ -36,7 +32,10 @@ def seed_knowledge_base():
         with open(kb_path, "r", encoding="utf-8") as f:
             data = json.load(f)
 
+        existing_names = {name for (name,) in db.query(models.NutritionKnowledge.food_name).all()}
         for item in data:
+            if item["food_name"] in existing_names:
+                continue
             entry = models.NutritionKnowledge(
                 food_name=item["food_name"],
                 serving_size=item["serving_size"],

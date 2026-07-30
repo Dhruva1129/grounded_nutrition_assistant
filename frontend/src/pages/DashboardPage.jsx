@@ -3,11 +3,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import CalorieRing from "../components/CalorieRing.jsx";
 import MacroChart from "../components/MacroChart.jsx";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState(null);
+  const [trends, setTrends] = useState(null);
   const [streak, setStreak] = useState(0);
   const [recentMeals, setRecentMeals] = useState([]);
+  const [favorites, setFavorites] = useState([]);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
 
@@ -23,34 +26,11 @@ export default function DashboardPage() {
 
       const history = await api.getMealHistory();
       setRecentMeals(history.slice(0, 5));
+      setFavorites(await api.getFavorites());
 
-      // Calculate simple streak (consecutive days of logs)
-      if (history.length > 0) {
-        let count = 0;
-        let lastDate = new Date();
-        // unique dates logged
-        const dates = [...new Set(history.map(m => m.date))].sort().reverse();
-        
-        // check if logged today or yesterday
-        const todayStr = lastDate.toISOString().split("T")[0];
-        lastDate.setDate(lastDate.getDate() - 1);
-        const yesterdayStr = lastDate.toISOString().split("T")[0];
-
-        if (dates.includes(todayStr) || dates.includes(yesterdayStr)) {
-          count = 1;
-          let expectedDate = new Date(dates[0]);
-          for (let i = 1; i < dates.length; i++) {
-            expectedDate.setDate(expectedDate.getDate() - 1);
-            const expStr = expectedDate.toISOString().split("T")[0];
-            if (dates[i] === expStr) {
-              count++;
-            } else {
-              break;
-            }
-          }
-        }
-        setStreak(count);
-      }
+      const trendsData = await api.getWeeklyTrends();
+      setTrends(trendsData);
+      setStreak(trendsData.streak);
     } catch (err) {
       setError("Failed to load dashboard data.");
     }
@@ -78,7 +58,26 @@ export default function DashboardPage() {
     }
   }
 
+  async function handleFavoriteLog(favorite) {
+    try {
+      const response = await api.parseMeal(favorite.raw_text, favorite.meal_type, new Date().toISOString().split("T")[0]);
+      await api.saveMeal(response.meal_id, []);
+      loadDashboard();
+    } catch (err) { setError("Failed to log favorite: " + err.message); }
+  }
+
   if (!summary) return <div className="muted" style={{ padding: "40px 0" }}>Loading dashboard...</div>;
+
+  const currentHour = new Date().getHours();
+  const loggedTypes = summary.meals.map(m => m.meal_type.toLowerCase());
+  let reminder = null;
+  if (currentHour >= 6 && currentHour < 11 && !loggedTypes.includes("breakfast")) {
+    reminder = "Good morning! Don't forget to log your breakfast.";
+  } else if (currentHour >= 12 && currentHour < 16 && !loggedTypes.includes("lunch")) {
+    reminder = "Good afternoon! Don't forget to log your lunch.";
+  } else if (currentHour >= 18 && currentHour < 22 && !loggedTypes.includes("dinner")) {
+    reminder = "Good evening! Don't forget to log your dinner.";
+  }
 
   return (
     <div>
@@ -96,6 +95,13 @@ export default function DashboardPage() {
           <Link to="/log" className="btn accent-btn">Log a Meal</Link>
         </div>
       </div>
+
+      {reminder && (
+        <div className="disclaimer-banner" style={{ backgroundColor: "var(--info-bg)", borderLeftColor: "var(--info)", color: "#1E40AF" }}>
+          <span style={{ fontSize: "16px" }}>⏰</span> 
+          <span><strong>Reminder:</strong> {reminder}</span>
+        </div>
+      )}
 
       {error && <div className="error-banner">{error}</div>}
 
@@ -176,6 +182,7 @@ export default function DashboardPage() {
           <h3>Quick Log Favorites</h3>
           <p className="muted" style={{ marginBottom: "16px" }}>One-click log standard portions of healthy foods as a snack.</p>
           <div className="grid grid-2" style={{ gap: "10px" }}>
+            {favorites.map((favorite) => <div className="quick-log-item" key={favorite.id} onClick={() => handleFavoriteLog(favorite)}><span>⭐ {favorite.name}</span><span className="muted">Log again</span></div>)}
             <div className="quick-log-item" onClick={() => handleQuickLog("Apple")}>
               <span>🍎 Fresh Apple</span>
               <span className="muted">95 kcal</span>
@@ -195,6 +202,24 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {trends && trends.days && (
+        <div className="card">
+          <h3>Weekly Trends</h3>
+          <p className="muted" style={{ marginBottom: "16px" }}>Your calorie and protein intake over the last 7 days.</p>
+          <div style={{ width: "100%", height: 250 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={trends.days.slice().reverse()} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <XAxis dataKey="date" tickFormatter={(val) => new Date(val).toLocaleDateString(undefined, { weekday: 'short' })} tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
+                <YAxis tick={{ fontSize: 12, fill: "var(--text-muted)" }} />
+                <Tooltip cursor={{ fill: 'var(--bg-panel-alt)' }} />
+                <Bar dataKey="calories" fill="var(--info)" radius={[4, 4, 0, 0]} name="Calories (kcal)" />
+                <Bar dataKey="protein" fill="var(--success)" radius={[4, 4, 0, 0]} name="Protein (g)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

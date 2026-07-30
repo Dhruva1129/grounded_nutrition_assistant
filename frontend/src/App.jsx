@@ -7,6 +7,7 @@ import MealPlanPage from "./pages/MealPlanPage.jsx";
 import KnowledgeBasePage from "./pages/KnowledgeBasePage.jsx";
 import ProfilePage from "./pages/ProfilePage.jsx";
 import InsightsPage from "./pages/InsightsPage.jsx";
+import ProgressPage from "./pages/ProgressPage.jsx";
 import DisclaimerBanner from "./components/DisclaimerBanner.jsx";
 
 export default function App() {
@@ -29,6 +30,9 @@ export default function App() {
         <NavLink to="/insights" className={({ isActive }) => (isActive ? "active" : "")}>
           AI insights
         </NavLink>
+        <NavLink to="/progress" className={({ isActive }) => (isActive ? "active" : "")}>
+          Progress & Activity
+        </NavLink>
         <NavLink to="/knowledge" className={({ isActive }) => (isActive ? "active" : "")}>
           Knowledge Base
         </NavLink>
@@ -46,6 +50,7 @@ export default function App() {
           <Route path="/history" element={<MealHistoryPage />} />
           <Route path="/plan" element={<MealPlanPage />} />
           <Route path="/insights" element={<InsightsPage />} />
+          <Route path="/progress" element={<ProgressPage />} />
           <Route path="/knowledge" element={<KnowledgeBasePage />} />
           <Route path="/profile" element={<ProfilePage />} />
         </Routes>

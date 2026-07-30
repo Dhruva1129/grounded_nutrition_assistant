@@ -180,3 +180,18 @@ def get_meal_plan(plan_id: str, db: Session = Depends(get_db)):
     if not plan:
         raise HTTPException(404, "Meal plan not found")
     return plan
+
+
+@router.get("/{plan_id}/grocery-list")
+def get_grocery_list(plan_id: str, db: Session = Depends(get_db)):
+    plan = db.get(models.MealPlan, plan_id)
+    if not plan:
+        raise HTTPException(404, "Meal plan not found")
+    grouped = {}
+    for item in plan.items:
+        key = (item.food_name, item.unit)
+        grouped[key] = grouped.get(key, 0) + item.quantity
+    return {"plan_id": plan.id, "items": [
+        {"food_name": name, "quantity": round(quantity, 1), "unit": unit}
+        for (name, unit), quantity in sorted(grouped.items())
+    ]}

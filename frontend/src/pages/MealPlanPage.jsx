@@ -8,6 +8,7 @@ export default function MealPlanPage() {
   const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editedItems, setEditedItems] = useState([]);
+  const [groceryList, setGroceryList] = useState(null);
 
   useEffect(() => {
     loadPlans();
@@ -73,6 +74,11 @@ export default function MealPlanPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function showGroceryList() {
+    try { setGroceryList(await api.getGroceryList(currentPlan.id)); }
+    catch (err) { setError("Failed to create grocery list."); }
   }
 
   const startEditing = () => {
@@ -207,6 +213,7 @@ export default function MealPlanPage() {
                   <p className="muted" style={{ fontSize: "13px" }}>{currentPlan.ai_rationale}</p>
                 </div>
               )}
+              {groceryList && <div className="card" style={{ marginTop: "20px" }}><h4>Grocery List</h4><ul style={{ paddingLeft: "18px" }}>{groceryList.items.map((item) => <li key={`${item.food_name}-${item.unit}`}>{item.food_name}: {item.quantity} {item.unit}</li>)}</ul></div>}
 
               {/* Action Buttons */}
               <div style={{ borderTop: "1px solid var(--border)", paddingTop: "20px", marginTop: "24px", display: "flex", gap: "12px" }}>
@@ -224,6 +231,7 @@ export default function MealPlanPage() {
                         <button className="danger" onClick={() => handleReject(currentPlan.id)}>Reject Plan</button>
                       </>
                     )}
+                    <button className="secondary" onClick={showGroceryList}>Create Grocery List</button>
                     {currentPlan.status === "approved" && (
                       <div className="badge badge-success" style={{ padding: "8px 14px" }}>
                         ✓ Approved Plan

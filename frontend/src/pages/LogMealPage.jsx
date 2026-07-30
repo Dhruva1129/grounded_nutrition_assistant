@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 
@@ -14,8 +14,42 @@ export default function LogMealPage() {
   const [clarifications, setClarifications] = useState([]);
   const [assumptions, setAssumptions] = useState([]);
   const [totals, setTotals] = useState({ calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const [notice, setNotice] = useState(null);
+  const [favorites, setFavorites] = useState([]);
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    api.getFavorites().then(setFavorites).catch(() => {});
+  }, []);
+
+  async function logFavorite(fav) {
+    setRawText(fav.raw_text);
+    setMealType(fav.meal_type);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api.parseMeal(
+        fav.raw_text,
+        fav.meal_type,
+        new Date().toISOString().split("T")[0]
+      );
+      setMealId(res.meal_id);
+      setItems(res.items);
+      setClarifications(res.clarifications);
+      setAssumptions(res.ai_assumptions);
+      setTotals({
+        calories: res.total_calories,
+        protein: res.total_protein,
+        carbs: res.total_carbs,
+        fat: res.total_fat
+      });
+    } catch (err) {
+      setError("Failed to parse meal: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleParse(e) {
     e.preventDefault();
@@ -78,6 +112,26 @@ export default function LogMealPage() {
     setTotals({ calories: cal, protein: prot, carbs: carb, fat: f });
   };
 
+  const applyPortion = (index, multiplier) => {
+    const item = items[index];
+    const previousQuantity = Number(item.quantity) || 1;
+    const ratio = multiplier / previousQuantity;
+    const updated = [...items];
+    updated[index] = {
+      ...item, quantity: multiplier,
+      calories: Number((item.calories * ratio).toFixed(1)), protein_g: Number((item.protein_g * ratio).toFixed(1)),
+      carbs_g: Number((item.carbs_g * ratio).toFixed(1)), fat_g: Number((item.fat_g * ratio).toFixed(1)),
+    };
+    setItems(updated);
+    setTotals(updated.reduce((total, current) => ({ calories: total.calories + current.calories, protein: total.protein + current.protein_g, carbs: total.carbs + current.carbs_g, fat: total.fat + current.fat_g }), { calories: 0, protein: 0, carbs: 0, fat: 0 }));
+  };
+
+  async function saveFavorite() {
+    if (!rawText.trim()) return;
+    try { await api.createFavorite({ name: rawText.slice(0, 40), raw_text: rawText, meal_type: mealType }); setNotice("Saved as a reusable meal."); }
+    catch (err) { setError("Could not save favorite: " + err.message); }
+  }
+
   async function handleSave() {
     setLoading(true);
     try {
@@ -108,6 +162,7 @@ export default function LogMealPage() {
       </p>
 
       {error && <div className="error-banner">{error}</div>}
+      {notice && <div className="badge badge-success" style={{ display: "block", padding: "10px", marginBottom: "16px" }}>{notice}</div>}
 
       <div className="card">
         <form onSubmit={handleParse}>
@@ -139,6 +194,27 @@ export default function LogMealPage() {
           </button>
         </form>
       </div>
+
+      {/* Render Favorites List */}
+      {favorites.length > 0 && !mealId && (
+        <div className="card" style={{ marginTop: "24px" }}>
+          <h3>⭐ Your Favorite Meals</h3>
+          <p className="muted" style={{ marginBottom: "16px" }}>Click to instantly load and analyze a saved meal.</p>
+          <div className="grid grid-2" style={{ gap: "10px" }}>
+            {favorites.map(fav => (
+              <div 
+                key={fav.id} 
+                className="quick-log-item card-accent" 
+                onClick={() => logFavorite(fav)}
+                style={{ cursor: "pointer", padding: "12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}
+              >
+                <div style={{ fontWeight: 600, color: "var(--text)" }}>{fav.name}</div>
+                <div className="muted" style={{ fontSize: "12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{fav.raw_text}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Render Clarification Dialogs */}
       {clarifications.length > 0 && (
@@ -184,6 +260,17 @@ export default function LogMealPage() {
                       Matched to KB: <strong>{item.kb_entry_name}</strong>
                     </span>
                   )}
+                </div>
+                {item.confidence !== "high" && (
+                  <div className="estimate-range" style={{ display: "flex", gap: "6px", alignItems: "center", backgroundColor: "var(--warning-bg)", padding: "8px 12px", borderRadius: "var(--radius-sm)" }}>
+                    <span style={{ fontSize: "16px" }}>⚠️</span> 
+                    <span><strong>Uncertain Estimate:</strong> ~{Math.round(item.calories * 0.85)}–{Math.round(item.calories * 1.15)} kcal. Verify portion below.</span>
+                  </div>
+                )}
+                <div className="portion-picker" aria-label={`Portion for ${item.food_name}`}>
+                  <span>Quick portion:</span>
+                  <button type="button" className="secondary" onClick={() => applyPortion(idx, item.quantity * 0.5)}>Half ({(item.quantity * 0.5).toPrecision(2)} {item.unit})</button>
+                  <button type="button" className="secondary" onClick={() => applyPortion(idx, item.quantity * 2)}>Double ({(item.quantity * 2).toPrecision(2)} {item.unit})</button>
                 </div>
 
                 <div className="item-editor-grid">
@@ -255,6 +342,7 @@ export default function LogMealPage() {
             <button onClick={handleSave} disabled={loading || clarifications.length > 0}>
               Save to History
             </button>
+            <button type="button" className="secondary" onClick={saveFavorite}>Save as Favorite</button>
           </div>
         </div>
       )}

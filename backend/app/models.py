@@ -149,3 +149,38 @@ class NutritionKnowledge(Base):
     fat_g = Column(Float, default=0)
     preparation_method = Column(String, nullable=True)
     source_citation = Column(String, nullable=True)
+
+
+class NutritionSettings(Base):
+    """Goal-specific macro targets stored separately to keep existing profiles compatible."""
+    __tablename__ = "nutrition_settings"
+
+    user_id = Column(String, ForeignKey("user_profiles.id"), primary_key=True)
+    goal = Column(String, nullable=False, default="maintenance")
+    protein_target_g = Column(Float, nullable=False, default=100)
+    carbs_target_g = Column(Float, nullable=False, default=250)
+    fat_target_g = Column(Float, nullable=False, default=65)
+
+
+class DailyWellnessLog(Base):
+    __tablename__ = "daily_wellness_logs"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    user_id = Column(String, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    log_date = Column(Date, nullable=False, index=True)
+    water_ml = Column(Float, nullable=False, default=0)
+    weight_kg = Column(Float, nullable=True)
+    steps = Column(Integer, nullable=False, default=0)
+    exercise_minutes = Column(Integer, nullable=False, default=0)
+    exercise_calories = Column(Float, nullable=False, default=0)
+
+
+class FavoriteMeal(Base):
+    __tablename__ = "favorite_meals"
+
+    id = Column(String, primary_key=True, default=gen_id)
+    user_id = Column(String, ForeignKey("user_profiles.id"), nullable=False, index=True)
+    name = Column(String, nullable=False)
+    raw_text = Column(Text, nullable=False)
+    meal_type = Column(String, nullable=False, default="lunch")
+    created_at = Column(DateTime, default=datetime.utcnow)

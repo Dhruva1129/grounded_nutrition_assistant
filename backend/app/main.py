@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, engine, seed_knowledge_base
-from app.routers import profile, meals, meal_plans, knowledge
+from app.routers import profile, meals, meal_plans, knowledge, wellness
 
 settings = get_settings()
 
@@ -33,6 +33,7 @@ app.include_router(profile.router)
 app.include_router(meals.router)
 app.include_router(meal_plans.router)
 app.include_router(knowledge.router)
+app.include_router(wellness.router)
 
 
 @app.get("/health")

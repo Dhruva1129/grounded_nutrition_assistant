@@ -207,3 +207,53 @@ class InsightOut(BaseModel):
     type: str  # observation | suggestion | warning
     message: str
     supporting_data: Optional[dict] = None
+
+
+class NutritionChatRequest(BaseModel):
+    question: str
+
+
+class NutritionChatResponse(BaseModel):
+    answer: str
+
+
+class NutritionSettingsIn(BaseModel):
+    goal: str = "maintenance"
+    protein_target_g: float = 100
+    carbs_target_g: float = 250
+    fat_target_g: float = 65
+
+
+class NutritionSettingsOut(NutritionSettingsIn):
+    user_id: str
+
+    class Config:
+        from_attributes = True
+
+
+class DailyWellnessLogIn(BaseModel):
+    water_ml: float = 0
+    weight_kg: Optional[float] = None
+    steps: int = 0
+    exercise_minutes: int = 0
+    exercise_calories: float = 0
+
+
+class DailyWellnessLogOut(DailyWellnessLogIn):
+    log_date: date
+
+    class Config:
+        from_attributes = True
+
+
+class FavoriteMealIn(BaseModel):
+    name: str
+    raw_text: str
+    meal_type: str = "lunch"
+
+
+class FavoriteMealOut(FavoriteMealIn):
+    id: str
+
+    class Config:
+        from_attributes = True

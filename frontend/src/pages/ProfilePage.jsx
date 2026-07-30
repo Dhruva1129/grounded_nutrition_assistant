@@ -16,6 +16,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
+  const [nutritionSettings, setNutritionSettings] = useState({ goal: "maintenance", protein_target_g: 100, carbs_target_g: 250, fat_target_g: 65 });
 
   useEffect(() => {
     api.getProfile()
@@ -27,6 +28,7 @@ export default function ProfilePage() {
         setError("Failed to fetch profile settings.");
         setLoading(false);
       });
+    api.getNutritionSettings().then((data) => setNutritionSettings(data)).catch(() => {});
   }, []);
 
   async function handleSave(e) {
@@ -34,13 +36,28 @@ export default function ProfilePage() {
     setMessage(null);
     setError(null);
     try {
-      const updated = await api.updateProfile(profile);
+      const [updated] = await Promise.all([api.updateProfile(profile), api.updateNutritionSettings(nutritionSettings)]);
       setProfile(updated);
       setMessage("Profile saved successfully!");
       setTimeout(() => setMessage(null), 3000);
     } catch (err) {
       setError("Failed to save profile: " + err.message);
     }
+  }
+
+  async function exportData() {
+    const data = await api.exportData();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+    link.download = "nutrition-data.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  async function deleteData() {
+    if (!window.confirm("Delete all meal plans, meal history, favorites, and wellness logs? This cannot be undone.")) return;
+    await api.deletePersonalData();
+    setMessage("Your nutrition records have been deleted. Your profile was kept.");
   }
 
   const addTag = (field, tag, setTagInput) => {
@@ -60,6 +77,25 @@ export default function ProfilePage() {
       ...profile,
       [field]: profile[field].filter((t) => t !== tag),
     });
+  };
+
+  const autoCalculateMacros = () => {
+    const cals = profile.calorie_target;
+    let pPct, cPct, fPct;
+    if (nutritionSettings.goal === "weight_loss") {
+      pPct = 0.40; cPct = 0.35; fPct = 0.25;
+    } else if (nutritionSettings.goal === "muscle_gain") {
+      pPct = 0.35; cPct = 0.45; fPct = 0.20;
+    } else { // maintenance
+      pPct = 0.30; cPct = 0.40; fPct = 0.30;
+    }
+    
+    setNutritionSettings(prev => ({
+      ...prev,
+      protein_target_g: Math.round((cals * pPct) / 4),
+      carbs_target_g: Math.round((cals * cPct) / 4),
+      fat_target_g: Math.round((cals * fPct) / 9)
+    }));
   };
 
   if (loading) return <div className="muted">Loading profile settings...</div>;
@@ -96,6 +132,37 @@ export default function ProfilePage() {
               max="10000"
               required
             />
+          </div>
+        </div>
+
+        <div style={{ marginTop: "24px", padding: "20px", backgroundColor: "var(--bg-panel-alt)", borderRadius: "var(--radius-md)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+            <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Macro Goals</h3>
+            <button type="button" className="btn secondary" onClick={autoCalculateMacros} style={{ fontSize: "0.85rem", padding: "6px 12px" }}>
+              ✨ Auto-calculate from Goal
+            </button>
+          </div>
+          <div className="grid grid-2">
+            <div className="form-group">
+              <label>Goal</label>
+              <select value={nutritionSettings.goal} onChange={(e) => setNutritionSettings({ ...nutritionSettings, goal: e.target.value })}>
+                <option value="weight_loss">Weight loss (High Protein, Lower Carbs)</option>
+                <option value="maintenance">Maintenance (Balanced)</option>
+                <option value="muscle_gain">Muscle gain (High Carbs, Mod Protein)</option>
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Protein target (g/day)</label>
+              <input type="number" value={nutritionSettings.protein_target_g} onChange={(e) => setNutritionSettings({ ...nutritionSettings, protein_target_g: Number(e.target.value) || 0 })} />
+            </div>
+            <div className="form-group">
+              <label>Carbohydrate target (g/day)</label>
+              <input type="number" value={nutritionSettings.carbs_target_g} onChange={(e) => setNutritionSettings({ ...nutritionSettings, carbs_target_g: Number(e.target.value) || 0 })} />
+            </div>
+            <div className="form-group">
+              <label>Fat target (g/day)</label>
+              <input type="number" value={nutritionSettings.fat_target_g} onChange={(e) => setNutritionSettings({ ...nutritionSettings, fat_target_g: Number(e.target.value) || 0 })} />
+            </div>
           </div>
         </div>
 
@@ -178,6 +245,7 @@ export default function ProfilePage() {
           <button type="submit">Save Settings</button>
         </div>
       </form>
+      <section className="card" style={{ marginTop: "24px" }}><h3>Privacy & Data</h3><p className="muted">Your meal records are stored in this application database. Export a copy at any time or permanently clear your records.</p><div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}><button className="secondary" onClick={exportData}>Export My Data</button><button className="danger" onClick={deleteData}>Delete My Data</button></div></section>
     </div>
   );
 }

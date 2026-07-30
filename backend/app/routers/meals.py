@@ -386,3 +386,47 @@ def get_nutrition_insights(db: Session = Depends(get_db)):
             supporting_data=ins.get("supporting_data")
         ) for ins in raw_insights
     ]
+
+
+@router.post("/insights/chat", response_model=schemas.NutritionChatResponse)
+def nutrition_chat(payload: schemas.NutritionChatRequest, db: Session = Depends(get_db)):
+    """Answer a nutrition question using the profile and the last seven days of logs."""
+    question = payload.question.strip()
+    if not question:
+        raise HTTPException(400, "Please enter a nutrition question.")
+
+    profile = db.get(models.UserProfile, "default")
+    if not profile:
+        raise HTTPException(404, "Profile not found")
+
+    history = []
+    for i in range(7):
+        day = date.today() - timedelta(days=i)
+        meals = db.query(models.Meal).filter(
+            models.Meal.user_id == profile.id,
+            models.Meal.date == day,
+            models.Meal.is_finalized == True,
+        ).all()
+        history.append({
+            "date": day,
+            "total_calories": sum(meal.total_calories for meal in meals),
+            "total_protein": sum(meal.total_protein for meal in meals),
+            "total_carbs": sum(meal.total_carbs for meal in meals),
+            "total_fat": sum(meal.total_fat for meal in meals),
+            "meals": [
+                {
+                    "meal_type": meal.meal_type,
+                    "raw_text": meal.raw_text,
+                    "items": [{"food_name": item.food_name, "calories": item.calories} for item in meal.items],
+                }
+                for meal in meals
+            ],
+        })
+
+    answer = agent.answer_nutrition_question(question, {
+        "calorie_target": profile.calorie_target,
+        "dietary_preferences": profile.dietary_preferences,
+        "allergies": profile.allergies,
+        "foods_to_avoid": profile.foods_to_avoid,
+    }, history)
+    return schemas.NutritionChatResponse(answer=answer)
