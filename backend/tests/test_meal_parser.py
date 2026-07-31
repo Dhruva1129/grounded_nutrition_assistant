@@ -25,6 +25,33 @@ def test_numbers_only_apply_to_the_food_they_describe():
     assert sum(item["calories"] for item in result["items"]) == 571.0
 
 
+def test_idly_with_pieces_and_coconut_smoothie():
+    """Common misspelling and quantity-after-food phrasing should parse correctly."""
+    kb_items = json.loads(KB_PATH.read_text(encoding="utf-8"))
+
+    result = _rule_based_parse(
+        "i had idly 4 pieces with coconut smoothie",
+        {},
+        kb_items,
+    )
+
+    items = {item["kb_entry_name"]: item for item in result["items"]}
+    assert items["Idli"]["calories"] == 232.0  # 4 x 58 kcal
+    assert items["Coconut Smoothie"]["calories"] == 280.0
+    assert sum(item["calories"] for item in result["items"]) == 512.0
+    assert not any(item["source"] == "ai_estimate" for item in result["items"])
+
+
+def test_quantity_before_food_still_works():
+    kb_items = json.loads(KB_PATH.read_text(encoding="utf-8"))
+
+    result = _rule_based_parse("2 idli and 1 dosa", {}, kb_items)
+    items = {item["kb_entry_name"]: item for item in result["items"]}
+
+    assert items["Idli"]["calories"] == 116.0
+    assert items["Dosa"]["calories"] == 168.0
+
+
 def test_nutrition_chat_uses_logged_history_when_ai_is_unavailable(monkeypatch):
     monkeypatch.setattr(agent, "_call_gemini", lambda *_: None)
     answer = agent.answer_nutrition_question(

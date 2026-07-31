@@ -154,9 +154,57 @@ def _extract_json(text: str):
 
 # ---------- Offline fallbacks ----------
 
+_UNIT_PATTERN = r"g|grams?|ml|milliliters?|cups?|servings?|pieces?|slices?|pc|pcs|bowls?"
+
+
+def _kb_base_name(food_name: str) -> str:
+    return re.sub(r"\s*\([^)]*\)", "", food_name).strip().lower()
+
+
+def _default_aliases(kb_name: str, kb_items: list[dict]) -> list[str]:
+    """Build fallback aliases from a KB entry name."""
+    kb_clean = _kb_base_name(kb_name)
+    result: list[str] = []
+    paren_match = re.search(r"\(([^)]+)\)", kb_name)
+    if paren_match:
+        inner = paren_match.group(1).lower().strip()
+        result.append(re.escape(inner) + "s?")
+        # Do not reuse the shared base noun when another KB entry already uses it
+        # (e.g. "Egg (Scrambled)" must not match plain "eggs").
+        base_conflict = any(
+            other["food_name"] != kb_name and _kb_base_name(other["food_name"]) == kb_clean
+            for other in kb_items
+        )
+        if not base_conflict:
+            result.append(re.escape(kb_clean) + "s?")
+    else:
+        result.append(re.escape(kb_clean) + "s?")
+    return result
+
+
+def _normalize_meal_text(raw_text: str) -> str:
+    """Strip common meal-logging prefixes so food names are easier to match."""
+    text = raw_text.lower().strip()
+    text = re.sub(
+        r"^(?:i\s+)?(?:had|have\s+had|ate|eaten|consumed|drank|drunk|for\s+\w+\s+i\s+had)\s+",
+        "",
+        text,
+    )
+    return text
+
+
+def _scale_from_amount(amount: float, unit: str, kb: dict) -> float:
+    unit = unit.lower()
+    if unit.startswith("g") and kb["serving_size"]:
+        return amount / kb["serving_size"]
+    if unit in {"ml", "milliliter", "milliliters", "cup", "cups", "katori", "katoris", "bowl", "bowls"} and kb["serving_size"]:
+        return amount / kb["serving_size"]
+    return amount
+
+
 def _rule_based_parse(raw_text: str, user_profile: dict, kb_items: list[dict]) -> dict:
     """Offline regex-based parser when Gemini is not available."""
-    text_lower = raw_text.lower()
+    text_lower = _normalize_meal_text(raw_text)
     extracted_items = []
     clarifications = []
     assumptions = []
@@ -180,9 +228,11 @@ def _rule_based_parse(raw_text: str, user_profile: dict, kb_items: list[dict]) -
         "Chicken Biryani": ["chicken biryani", "murgh biryani"],
         "Veg Biryani": ["veg biryani", "vegetable biryani"],
         "Paratha (Plain)": ["paratha", "parantha"],
-        "Idli": ["idli", "idlis"],
+        "Idli": ["idli", "idlis", "idly", "idlies"],
         "Dosa": ["dosa", "dosas?"],
         "Masala Chai": ["chai", "tea", "masala chai"],
+        "Smoothie (Mixed Berry)": [r"(?<!coconut )smoothies?", r"berry smoothie"],
+        "Coconut Smoothie": ["coconut smoothie", "coconut smoothies"],
     }
 
     # Prefer specific dishes before their component ingredients, then let standard
@@ -196,36 +246,32 @@ def _rule_based_parse(raw_text: str, user_profile: dict, kb_items: list[dict]) -
         example, in "rice with curry and 2 boiled eggs", the 2 belongs to eggs,
         not rice.  This was the cause of the 3 kcal result.
         """
-        # Aliases are regex fragments, so preserve their optional/plural patterns.
         escaped_alias = alias
-        # A number immediately before a named food is a count ("2 eggs") unless
-        # it explicitly has a mass/volume unit, in which case scale by the KB size.
-        match = re.search(
-            rf"\b(\d+(?:\.\d+)?)\s*(g|grams?|ml|cups?|servings?|pieces?|slices?)?\s+(?:{escaped_alias})\b",
-            text_lower,
-        )
-        if not match:
-            return 1.0, False
-
-        amount = float(match.group(1))
-        specified_unit = (match.group(2) or "").lower()
-        if specified_unit.startswith("g") and kb["serving_size"]:
-            return amount / kb["serving_size"], True
-        if specified_unit in ["ml", "katori", "katoris", "cup", "cups"] and kb["serving_size"]:
-            return amount / kb["serving_size"], True
-        return amount, True
+        patterns = [
+            # "4 idli", "4 pieces idli", "150g rice"
+            rf"\b(\d+(?:\.\d+)?)\s*(?:({_UNIT_PATTERN}))?\s+(?:{escaped_alias})\b",
+            # "idli 4 pieces", "rice 150g"
+            rf"\b(?:{escaped_alias})\s+(\d+(?:\.\d+)?)\s*(?:({_UNIT_PATTERN}))?\b",
+            # "4 pieces of idli"
+            rf"\b(\d+(?:\.\d+)?)\s*(?:({_UNIT_PATTERN}))\s+of\s+(?:{escaped_alias})\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, text_lower)
+            if not match:
+                continue
+            amount = float(match.group(1))
+            specified_unit = (match.group(2) or "").lower()
+            return _scale_from_amount(amount, specified_unit, kb), True
+        return 1.0, False
 
     item_idx = 0
     # Simple regex scanner for food names
     for kb in sorted_kb:
         kb_name = kb["food_name"]
-        kb_clean = re.sub(r"\s*\([^)]*\)", "", kb_name.lower()).strip()
+        kb_clean = _kb_base_name(kb_name)
         # Do not let a preparation-specific entry match only its base noun.  Without
         # this guard, "boiled eggs" could be claimed first by "Egg (Scrambled)".
-        match_aliases = aliases.get(
-            kb_name,
-            [] if "(" in kb_name else [re.escape(kb_clean) + "s?"],
-        )
+        match_aliases = aliases.get(kb_name, _default_aliases(kb_name, kb_items))
         
         # Avoid double-matching if we already extracted something overlapping
         matched_alias = next((alias for alias in match_aliases if re.search(rf"\b(?:{alias})\b", text_lower)), None)
@@ -500,7 +546,7 @@ def parse_meal(raw_text: str, user_profile: dict, kb_items: list[dict]) -> dict:
             "allergies": user_profile.get("allergies", []),
             "foods_to_avoid": user_profile.get("foods_to_avoid", [])
         },
-        "knowledge_base": kb_summarized[:120]  # Limit context size slightly just in case
+        "knowledge_base": kb_summarized
     })
 
     llm_text = _call_gemini(MEAL_PARSE_SYSTEM_PROMPT, user_payload)

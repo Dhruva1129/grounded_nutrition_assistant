@@ -1078,6 +1078,17 @@
     "source_citation": "USDA FoodData Central avg whey protein isolate"
   },
   {
+    "food_name": "Coconut Smoothie",
+    "serving_size": 300,
+    "unit": "ml",
+    "calories": 280,
+    "protein_g": 4.0,
+    "carbs_g": 28.0,
+    "fat_g": 18.0,
+    "preparation_method": "blended",
+    "source_citation": "USDA est. coconut milk + fruit smoothie"
+  },
+  {
     "food_name": "Smoothie (Mixed Berry)",
     "serving_size": 300,
     "unit": "ml",
